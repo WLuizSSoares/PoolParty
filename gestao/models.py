@@ -1,5 +1,6 @@
 from django.core.exceptions import ValidationError
 from django.db import models
+from datetime import timedelta
 
 class Casa(models.Model):
 
@@ -45,7 +46,8 @@ class Reserva(models.Model):
 
     status = models.CharField(max_length=15,
                               choices=Status.choices,
-                              default=Status.PENDENTE, )
+                              default=Status.PENDENTE
+                              )
 
     class Modalidade(models.TextChoices):
         DIURNA = 'diurna', 'Diurna'
@@ -84,7 +86,6 @@ class Reserva(models.Model):
 
     data_inicio = models.DateTimeField()
     data_fim = models.DateTimeField()
-
     observacoes = models.TextField(blank=True)
 
     criado_em = models.DateTimeField(auto_now_add=True)
@@ -116,4 +117,29 @@ class Reserva(models.Model):
                 raise ValidationError (
                     'A casa não permite esse tipo de modalidade.'
                 )
+
+        #Encontrar reservas da mesma casa
+        reservas_da_casa = Reserva.objects.filter(casa=self.casa)
+        #Manter somente as reservas que bloqueiam horários.
+        reservas_da_casa = reservas_da_casa.filter(
+            status__in={
+                Reserva.Status.PENDENTE,
+                Reserva.Status.CONFIRMADA,
+                Reserva.Status.CONCLUIDA
+            }
+        )
+        #Ignorar a própria reserva durante uma edição
+        if self.pk:
+            reservas_da_casa = reservas_da_casa.exclude(pk=self.pk)
+
+        #Validação de horário para novas reservas, com intervalo mínimo de 1 hora
+        intervalo = timedelta(hours=1)
+        for reserva_existente in reservas_da_casa:
+            antes = self.data_fim <= reserva_existente.data_inicio - intervalo
+            depois = self.data_inicio >= reserva_existente.data_fim + intervalo
+            if not antes and not depois:
+                raise ValidationError(
+                    'Já existe uma reserva nesse período ou sem o intervalo mínimo de uma hora.'
+                )
+
 
