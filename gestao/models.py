@@ -99,18 +99,19 @@ class Reserva(models.Model):
 
     # Método utilizado para validar os dados do modelo.
     def clean(self):
-        #Validade do período
+        #Validade do período e datas preenchidas
         if self.data_inicio and self.data_fim:
             if self.data_fim <= self.data_inicio:
                 raise ValidationError(
                     'O término da reserva deve ser posterior ao início.'
                 )
-        #Validade de Casa ativa
+        #Validade se casa está selecionada e ativa.
         if self.casa_id and not self.casa.ativa:
             raise ValidationError (
                 f'A casa não está ativa devido {self.casa.motivo_inativacao}.'
             )
 
+        #Verificar se a modalidade é permitida para aquela casa.
         if self.casa and not self.casa.permite_noturno:
             if (self.modalidade == Reserva.Modalidade.NOTURNA
                     or self.modalidade == Reserva.Modalidade.DIA_NOITE):
@@ -118,28 +119,26 @@ class Reserva(models.Model):
                     'A casa não permite esse tipo de modalidade.'
                 )
 
-        #Encontrar reservas da mesma casa
-        reservas_da_casa = Reserva.objects.filter(casa=self.casa)
-        #Manter somente as reservas que bloqueiam horários.
-        reservas_da_casa = reservas_da_casa.filter(
-            status__in={
-                Reserva.Status.PENDENTE,
-                Reserva.Status.CONFIRMADA,
-                Reserva.Status.CONCLUIDA
-            }
-        )
-        #Ignorar a própria reserva durante uma edição
-        if self.pk:
-            reservas_da_casa = reservas_da_casa.exclude(pk=self.pk)
+        if self.casa and self.data_inicio and self.data_fim:
+            reservas_da_casa = Reserva.objects.filter(casa=self.casa)
+            reservas_da_casa = reservas_da_casa.filter(
+                status__in={
+                    Reserva.Status.PENDENTE,
+                    Reserva.Status.CONFIRMADA,
+                    Reserva.Status.CONCLUIDA
+                }
+            )
+            if self.pk:
+                reservas_da_casa = reservas_da_casa.exclude(pk=self.pk)
 
-        #Validação de horário para novas reservas, com intervalo mínimo de 1 hora
-        intervalo = timedelta(hours=1)
-        for reserva_existente in reservas_da_casa:
-            antes = self.data_fim <= reserva_existente.data_inicio - intervalo
-            depois = self.data_inicio >= reserva_existente.data_fim + intervalo
-            if not antes and not depois:
-                raise ValidationError(
-                    'Já existe uma reserva nesse período ou sem o intervalo mínimo de uma hora.'
-                )
+            #Verificar conflitos de horários.
+            intervalo = timedelta(hours=1)
+            for reserva_existente in reservas_da_casa:
+                antes = self.data_fim <= reserva_existente.data_inicio - intervalo
+                depois = self.data_inicio >= reserva_existente.data_fim + intervalo
+                if not antes and not depois:
+                    raise ValidationError(
+                        'Já existe uma reserva nesse período ou sem o intervalo mínimo de uma hora.'
+                    )
 
 
